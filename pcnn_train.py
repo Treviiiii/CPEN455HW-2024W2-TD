@@ -93,7 +93,7 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     
-    model_name = 'pcnn_' + args.dataset + "_"
+    model_name = 'unconditional_pcnn_kaggle_' + args.dataset + "_"
     model_path = args.save_dir + '/'
     if args.load_params is not None:
         model_name = model_name + 'load_model'
@@ -122,7 +122,7 @@ if __name__ == '__main__':
     #Reminder: if you have patience to read code line by line, you should notice this comment. here is the reason why we set num_workers to 0:
     #In order to avoid pickling errors with the dataset on different machines, we set num_workers to 0.
     #If you are using ubuntu/linux/colab, and find that loading data is too slow, you can set num_workers to 1 or even bigger.
-    kwargs = {'num_workers':0, 'pin_memory':True, 'drop_last':True}
+    kwargs = {'num_workers': 1, 'pin_memory':True, 'drop_last':True}
 
     # set data
     if "mnist" in args.dataset:
@@ -192,6 +192,7 @@ if __name__ == '__main__':
     scheduler = lr_scheduler.StepLR(optimizer, step_size=1, gamma=args.lr_decay)
     
     for epoch in tqdm(range(args.max_epochs)):
+        print(f"\nEpoch {epoch+1}/{args.max_epochs}")
         train_or_test(model = model, 
                       data_loader = train_loader, 
                       optimizer = optimizer, 
