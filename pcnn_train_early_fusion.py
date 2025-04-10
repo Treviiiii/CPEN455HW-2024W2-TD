@@ -24,9 +24,10 @@ def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, m
     loss_tracker = mean_tracker()
     
     for batch_idx, item in enumerate(tqdm(data_loader)):
-        model_input, _ = item
+        model_input, class_labels = item #store the return (image, category_name) from dataset.py
         model_input = model_input.to(device)
-        model_output = model(model_input)
+        class_labels = class_labels.to(device) #turn to a tensor
+        model_output = model(model_input, class_labels)
         loss = loss_op(model_input, model_output)
         loss_tracker.update(loss.item()/deno)
         if mode == 'training':
