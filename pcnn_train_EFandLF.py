@@ -12,6 +12,7 @@ from tqdm import tqdm
 from pprint import pprint
 import argparse
 from pytorch_fid.fid_score import calculate_fid_given_paths
+from classification_evaluation import classifier
 
 
 def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, mode = 'training'):
@@ -26,8 +27,11 @@ def train_or_test(model, data_loader, optimizer, loss_op, device, args, epoch, m
     for batch_idx, item in enumerate(tqdm(data_loader)):
         model_input, class_labels = item #store the return (image, category_name) from dataset.py
         model_input = model_input.to(device)
-        class_labels = class_labels.to(device) #turn to a tensor
-        model_output = model(model_input, class_labels)
+
+        if mode == 'training' or mode == 'val':
+            model_output = model(model_input, class_labels)
+        else:
+            model_output = model(model_input)
         loss = loss_op(model_input, model_output)
         loss_tracker.update(loss.item()/deno)
         if mode == 'training':
@@ -96,7 +100,7 @@ if __name__ == '__main__':
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
     
-    model_name = 'unconditional_pcnn_kaggle_' + args.dataset + "_"
+    model_name = 'conditional_pcnn_EFandLFv3_withAccuracy_' + args.dataset + "_"
     model_path = args.save_dir + '/'
     if args.load_params is not None:
         model_name = model_name + 'load_model'
@@ -113,8 +117,8 @@ if __name__ == '__main__':
             # set entity to specify your username or team name
             # entity="qihangz-work",
             # set the wandb project where this run will be logged
-            id = "1bajk4lk", #REMOVE IF RESTARTING
-            resume = "must", #REMOVE IF RESTARTING
+            #id = "unhna0hi", #REMOVE IF RESTARTING
+            #resume = "must", #REMOVE IF RESTARTING
             project="CPEN455HW",
             # group=Group Name
             name=job_name
@@ -212,6 +216,7 @@ if __name__ == '__main__':
                       epoch = epoch, 
                       mode = 'training')
         
+        """
         # decrease learning rate
         scheduler.step()
         train_or_test(model = model,
@@ -222,6 +227,7 @@ if __name__ == '__main__':
                       args = args,
                       epoch = epoch,
                       mode = 'test')
+        """
         
         train_or_test(model = model,
                       data_loader = val_loader,
@@ -231,6 +237,13 @@ if __name__ == '__main__':
                       args = args,
                       epoch = epoch,
                       mode = 'val')
+        model.eval()
+        if args.dataset == "cpen455": 
+            val_acc = classifier(model=model, data_loader=val_loader, device=device)
+            print(f"Classification Accuracy (epoch {epoch}): {val_acc:.4f}")
+            
+            if args.en_wandb:
+                wandb.log({"classification_accuracy": val_acc}, step=epoch)
         
         if epoch % args.sampling_interval == 0:
             print('......sampling......')

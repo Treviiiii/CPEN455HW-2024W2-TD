@@ -1,6 +1,13 @@
 import torch.nn as nn
 from layers import *
 
+class_index = {'Class0': 0, 'Class1': 1, 'Class2': 2, 'Class3': 3}
+
+def apply_fusion(x, class_embedding, lin_layer):
+    B,C,H,W = x.size()
+    embedded = lin_layer(class_embedding)
+    embedded = embedded.view(B,C,H,W)
+    return x + embedded
 
 class PixelCNNLayer_up(nn.Module):
     def __init__(self, nr_resnet, nr_filters, resnet_nonlinearity):
@@ -60,13 +67,15 @@ class PixelCNN(nn.Module):
             raise Exception('right now only concat elu is supported as resnet nonlinearity.')
 
         self.nr_filters = nr_filters
-        self.embedding_dim = nr_filters #set embedding dim to be same as nr_filters
+        self.embedding_dim = 64 #set embedding dim to be same as nr_filters
+        self.embedding = nn.Embedding(4, self.embedding_dim)
         self.input_channels = input_channels
         self.nr_logistic_mix = nr_logistic_mix
         self.right_shift_pad = nn.ZeroPad2d((1, 0, 0, 0))
         self.down_shift_pad  = nn.ZeroPad2d((0, 0, 1, 0))
-        self.embedding = nn.Embedding(4, self.embedding_dim) #add embedding layer
-
+        self.EF_embedding_lin = None
+        self.LF_embedding_lin = None
+        
         down_nr_resnet = [nr_resnet] + [nr_resnet + 1] * 2
         self.down_layers = nn.ModuleList([PixelCNNLayer_down(down_nr_resnet[i], nr_filters,
                                                 self.resnet_nonlinearity) for i in range(3)])
@@ -99,15 +108,20 @@ class PixelCNN(nn.Module):
         self.init_padding = None
 
 
-    def forward(self, x, class_labels = None, sample=False): #add class_labels as input, taken from dataset.py
-        if class_labels is not None:
-            #Early fusion
-            class_embedding = self.embedding(class_labels)
-            # Reshape embedding for broadcasting
-            class_embedding = class_embedding.view(x.size(0), self.embedding_dim, 1, 1)
-            # Add to feature maps
-            x = x + class_embedding
 
+    def forward(self, x, class_labels = None, sample=False): #add class_labels as input, taken from dataset.py   
+        if class_labels is not None:
+            if isinstance(class_labels[0], str):  # Handle string class labels
+                class_labels = torch.tensor([class_index[label] for label in class_labels], dtype=torch.int64).to(x.device)
+
+            B, C, H, W = x.size()
+            EF_embedded_labels = self.embedding(class_labels)
+
+            if self.EF_embedding_lin is None:
+                self.EF_embedding_lin = nn.Linear(self.embedding_dim, C * H * W).to(x.device)
+
+            x = apply_fusion(x, EF_embedded_labels, self.EF_embedding_lin)
+        
         # similar as done in the tf repo :
         if self.init_padding is not sample:
             xs = [int(y) for y in x.size()]
@@ -128,8 +142,7 @@ class PixelCNN(nn.Module):
             # resnet block
             u_out, ul_out = self.up_layers[i](u_list[-1], ul_list[-1])
             u_list  += u_out
-            ul_list += ul_out
-
+            ul_list += ul_out               
             if i != 2:
                 # downscale (only twice)
                 u_list  += [self.downsize_u_stream[i](u_list[-1])]
@@ -149,13 +162,27 @@ class PixelCNN(nn.Module):
                 ul = self.upsize_ul_stream[i](ul)
 
         x_out = self.nin_out(F.elu(ul))
+        """
+        if class_labels is not None:
+            if isinstance(class_labels[0], str):  # Handle string class labels
+                class_labels = torch.tensor([class_index[label] for label in class_labels], dtype=torch.int64).to(x_out.device)
 
+            B, C, H, W = x_out.size()
+            LF_embedded_labels = self.embedding(class_labels)
+
+            if self.LF_embedding_lin is None:
+                self.LF_embedding_lin = nn.Linear(self.embedding_dim, C * H * W).to(x_out.device)
+
+            x_out = apply_fusion(x_out, LF_embedded_labels, self.LF_embedding_lin)
+        """
+        
+            
         assert len(u_list) == len(ul_list) == 0, pdb.set_trace()
 
         return x_out
     
     
-class random_classifier(nn.Module):
+class   random_classifier(nn.Module):
     def __init__(self, NUM_CLASSES):
         super(random_classifier, self).__init__()
         self.NUM_CLASSES = NUM_CLASSES
